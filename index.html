@@ -1,0 +1,805 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <title>Amazon API GatewayとAkka HTTPをいい感じにしてみた</title>
+
+    <link rel="stylesheet" href="/css/reveal.css">
+    <link rel="stylesheet" href="/css/theme/night.css">
+
+    <!-- Theme used for syntax highlighting of code -->
+    <link rel="stylesheet" href="/lib/css/zenburn.css">
+
+    <!-- Printing and PDF exports -->
+    <script>
+      var link = document.createElement( 'link' );
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = window.location.search.match( /print-pdf/gi ) ? '/css/print/pdf.css' : '/css/print/paper.css';
+      document.getElementsByTagName( 'head' )[0].appendChild( link );
+    </script>
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section>
+          <img src="./img/scala_kb.png" style="height:60px;position:absolute;top:0;left:0;transform:rotate(-10deg);">
+          <img src="./img/akka_full_color.svg" style="height: 55px;background-color:#FFF;position:absolute;top:80px;right:0;transform:rotate(15deg);">
+          <img src="./img/apigateway.svg" style="height: 75px;background-color:#FFF;position:absolute;top:0;right:0;transform:rotate(15deg);">
+          <h1>Amazon<br>API Gatewayと<br>Akka HTTPをいい感じにしてみた</h1>
+          <p>第3回 Scala関西勉強会</p>
+          <p>
+            <small>
+              2016-07-10(Sun) / <a href="https://twitter.com/yoshiyoshifujii" target="_blank">@yoshiyoshifujii</a>
+            </small>
+          </p>
+        </section>
+
+        <section >
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+## こんにちは
+
+* Yoshitaka Fujii [@yoshiyoshifujii](https://twitter.com/yoshiyoshifujii)
+* Scala歴 1 year
+* Java / Python / Scala / Typescript
+* Scala 関西 Summit 2016 Staff
+
+![my](/img/my.jpg)
+![motex](/img/motex.png)
+
+---
+
+![zenkai](./img/IMG_5137.png)
+            </script>
+          </section>
+        </section>
+
+        <section data-background-image="./img/summit.png">
+        </section>
+
+        <section data-background-image="./img/spon.png">
+        </section>
+
+        <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+          <script type="text/template">
+# 今日のお話
+
+---
+
+## 1. Amazon API Gateway
+
+## 2. Aws Lambda で Scala
+
+## 3. Akka HTTP で Lambda
+          </script>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+# Amazon<br>API Gateway<br>について
+
+            </script>
+          </section>
+          <section data-background-image="./img/apigateway.png">
+          </section>
+          <section data-background-image="./img/console_1.png">
+          </section>
+          <section data-background-image="./img/console_3.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/lambda.png">
+          </section>
+          <section data-background-image="./img/console_4.png" data-background-size="60%">
+          </section>
+          <section data-background-image="./img/azure.png">
+          </section>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+# Amazon Lambda で Scala
+            </script>
+          </section>
+          <section data-background-image="./img/qiita.png">
+          </section>
+          <section data-background-image="./img/qiita_1.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/qiita_2.png" data-background-size="100%">
+          </section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+```scala
+package com.example
+
+import java.io.{InputStream, OutputStream}
+import com.amazonaws.services.lambda.runtime.{Context, RequestStreamHandler}
+import spray.json._
+
+trait Base extends RequestStreamHandler {
+
+  @throws(classOf[java.io.IOException])
+  override def handleRequest(input: InputStream, output: OutputStream, context: Context): Unit = {
+
+    // InputStreamから値を取り出す
+    val hello = JsonParser(toByteArray(input)).convertTo[Hello](helloFormat)
+
+    // OutputStreamに書き込む
+    output.write("""{"key" : "something"}""".getBytes("utf-8"))
+  }
+}
+
+class App extends Base
+```
+
+---
+
+### 余談ですが…
+
+```scala
+  def toByteArray(input: InputStream) =
+    Stream.continually(input.read).takeWhile(_ != -1).map(_.toByte).toArray
+```
+
+---
+
+```java
+public interface RequestStreamHandler {
+    /**
+     * Handles a Lambda Function request
+     * @param input The Lambda Function input stream
+     * @param output The Lambda function output stream
+     * @param context The Lambda execution environment context object.
+     * @throws IOException
+     */
+    public void handleRequest(InputStream input, OutputStream output, Context context) throws IOException;
+}
+```
+
+---
+
+```java
+public interface RequestHandler<I, O> {
+    /**
+     * Handles a Lambda Function request
+     * @param input The Lambda Function input
+     * @param context The Lambda execution environment context object.
+     * @return The Lambda Function output
+     */
+    public O handleRequest(I input, Context context);
+}
+```
+
+---
+```scala
+trait RequestStreamHandler {
+
+  @throws(classOf[java.io.IOException])
+  def handleRequest(input: InputStream, output: OutputStream, context: Context): Unit
+
+}
+```
+
+---
+
+```scala
+trait RequestHandler[I, O] {
+
+  def handleRequest(input: I, context: Context): O
+
+}
+```
+
+---
+
+```scala
+trait RequestHandler[I, O] {
+
+  lazy val handleRequest: I => Context => O
+
+}
+```
+
+---
+
+### 余談ですが…
+
+```scala
+import spray.json._
+
+case class Hello(message: String)
+
+implicit val helloFormat = jsonFormat1(Hello)
+
+val hello = JsonParser(toByteArray(input)).convertTo[Hello](helloFormat)
+```
+
+            </script>
+          </section>
+        </section>
+
+        <section>
+          <section data-background-image="./img/spray.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/play-json.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/size_2.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/awscala.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/awscala_lib.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/awscala_fuji.png" data-background-size="100%">
+          </section>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+# Akka HTTP で Lambda
+
+---
+
+# 開発の課題
+
+* 動作確認が面倒
+
+* assembly
+
+* File Upload
+
+* Add Permission
+
+* API Gateway
+
+---
+
+1. Lambda を作成
+
+2. Lambda に実行権限を付与
+
+3. Swagger YAML で REST API を定義
+
+4. API Gateway に YAML をインポート
+
+5. API Gateway の Stage に Deploy
+
+            </script>
+          </section>
+          <section data-background-image="./img/sbt-aws-lambda.png" data-background-size="100%">
+          </section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+```scala
+val lambdaSettings = Seq(
+  retrieveManaged := true,
+  s3Bucket := Some("lambda-modules.sample.com"),
+  region := Some("ap-northeast-1"),
+  awsLambdaMemory := Some(1536),
+  awsLambdaTimeout := Some(15),
+  roleArn := Some("arn:aws:iam::<Amazon Account ID>:role/lambda-all-exec-role"),
+  lambdaName := Some(s"${name.value}")
+)
+
+lazy val hello = (project in file("modules/hello")).
+  enablePlugins(AwsLambdaPlugin).
+  settings(lambdaSettings: _*).
+  settings(
+    handlerName := Some("com.sample.App::handleRequest")
+  ).
+  settings(
+    name := "SampleHello",
+    libraryDependencies ++= helloDeps
+  )
+
+```
+            </script>
+          </section>
+          <section data-background-image="./img/sbt-aws-lambda-1.png" data-background-size="100%">
+          </section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+### 3. Swagger YAML で REST API を定義
+
+```yaml
+paths:
+  /hello/{message}:
+    get:
+      consumes:
+      - "application/json"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "message"
+        in: "path"
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "200 response"
+          schema:
+            $ref: "#/definitions/Hello"
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+          .*"statusCode":400.*:
+            statusCode: "400"
+            responseTemplates:
+              application/json: "#set ($errorMessageObj = $util.parseJson($input.path('$.errorMessage')))\n\
+              $util.base64Decode($errorMessageObj.error)"
+          .*"statusCode":500.*:
+            statusCode: "500"
+            responseTemplates:
+              application/json: ""
+        requestTemplates:
+          application/json: "{\"message\":\"$input.params('message')\"}"
+        uri: "arn:aws:apigateway:ap-northeast-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-northeast-1:535121692824:function:SampleHello/invocations"
+        passthroughBehavior: "when_no_templates"
+        httpMethod: "POST"
+        type: "aws"
+```
+
+---
+
+### 余談ですが…
+
+```velocity
+#set ($errorMessageObj = $util.parseJson($input.path('$.errorMessage')))
+$util.base64Decode($errorMessageObj.error)
+```
+            </script>
+          </section>
+          <section data-background-image="./img/velocity.png" data-background-size="100%">
+          </section>
+          <section data-background-image="./img/velocity_1.png" data-background-size="100%">
+          </section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+```yaml
+paths:
+  /hello/{message}:
+    get:
+      consumes:
+      - "application/json"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "message"
+        in: "path"
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "200 response"
+          schema:
+            $ref: "#/definitions/Hello"
+      x-amazon-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+          .*"statusCode":400.*:
+            statusCode: "400"
+            responseTemplates:
+              application/json: "#set ($errorMessageObj = $util.parseJson($input.path('$.errorMessage')))\n\
+              $util.base64Decode($errorMessageObj.error)"
+          .*"statusCode":500.*:
+            statusCode: "500"
+            responseTemplates:
+              application/json: ""
+        requestTemplates:
+          application/json: "{\"message\":\"$input.params('message')\"}"
+        uri: "arn:aws:apigateway:ap-northeast-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-northeast-1:535121692824:function:SampleHello/invocations"
+        passthroughBehavior: "when_no_templates"
+        httpMethod: "POST"
+        type: "aws"
+```
+
+---
+
+### 4. API Gateway に YAML をインポート
+
+```sh
+#!/bin/sh
+
+if [ $# -ne 2 ]; then
+    echo "useage: import-apigateway.sh <REGION> <YAML_PATH>"
+    exit 1
+fi
+
+REGION=$1
+YAML_PATH=$2
+
+aws apigateway import-rest-api \
+    --region $REGION \
+    --body file://$YAML_PATH
+```
+
+```sh
+$ import-apigateway.sh us-east-1 swagger.yaml
+```
+
+            </script>
+          </section>
+          <section data-background-image="./img/velocity_1.png" data-background-size="100%">
+          </section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+### 5. API Gateway の Stage に Deploy
+
+```sh
+#!/bin/sh
+
+if [ $# -ne 3 ]; then
+    echo "useage: create-deployment.sh <REGION> <REST_API_ID> <STAGE_NAME>"
+    exit 1
+fi
+
+REGION=$1
+REST_API_ID=$2
+STAGE_NAME=$3
+
+aws apigateway create-deployment \
+    --region $REGION \
+    --rest-api-id $REST_API_ID \
+    --stage-name $STAGE_NAME
+```
+
+```sh
+$ create-deployment.sh us-east-1 xxxxxx prod
+```
+
+
+            </script>
+          </section>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+# で、これ、かなり面倒ですよね
+
+---
+
+1. Lambda を作成
+
+2. Lambda に実行権限を付与
+
+3. Swagger YAML で REST API を定義
+
+4. API Gateway に YAML をインポート
+
+5. API Gateway の Stage に Deploy
+            </script>
+          </section>
+        </section>
+
+        <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+          <script type="text/template">
+# できたらいいな
+
+* ローカルで API Gateway と同等の動作保証
+
+---
+
+# で、Akka HTTP で API Gateway<br>モドキを作ってみました
+
+---
+
+## やったこと
+
+1. Akka HTTP と Lambdaモジュールの sbtマルチプロジェクト
+
+2. API Gateway よろしく Swagger YAML のパース
+
+3. API Gateway よろしく Velocity テンプレートのパース
+
+---
+
+### 1. Akka HTTP と Lambdaモジュールの<br>sbtマルチプロジェクト
+
+```scala
+lazy val http = (project in file("http")).
+  dependsOn(agwCore,hello).
+  settings(commonSettings: _*).
+  settings(
+    name := "SampleHttp",
+    libraryDependencies ++= httpDeps
+  )
+
+lazy val hello = (project in file("modules/hello")).
+  enablePlugins(AwsLambdaPlugin).
+  dependsOn(core).
+  dependsOn(coreTest % Test).
+  settings(commonSettings: _*).
+  settings(assemblySettings: _*).
+  settings(lambdaSettings: _*).
+  settings(
+    handlerName := Some("com.sample.App::handleRequest")
+  ).
+  settings(
+    name := "SampleHello",
+    libraryDependencies ++= helloDeps
+  )
+```
+
+          </script>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+### 2. API Gateway よろしく<br>Swagger YAML のパース
+
+```scala
+  // Swagger
+  val swaggerParser = "io.swagger" % "swagger-parser" % "1.0.19"
+  val jacksonModuleScala = "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.7.4"
+```
+            </script>
+          </section>
+          <section data-background-image="./img/swagger-parser.png" data-background-size="100%">
+          </section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+```scala
+object Yaml {
+  private[this] val mapper = new ObjectMapper(new YAMLFactory).registerModule(DefaultScalaModule)
+  def read[T](file: java.io.File, clazz: Class[T]): T = mapper.readValue(file, clazz)
+  def read2json(file: java.io.File): JsonNode = read(file, classOf[JsonNode])
+  def read2json(filePath: String): JsonNode = read2json(new java.io.File(filePath))
+}
+```
+
+---
+
+```scala
+  lazy val swaggerYAMLFile = new java.io.File("swagger.yaml")
+  lazy val swaggerYAMLJson = Yaml.read2json(swaggerYAMLFile)
+  lazy val swagger = new SwaggerParser().read(swaggerYAMLJson)
+  lazy val amazonApiGatewayIntegration = generateAmazonApiGatewayIntegration(path, method)
+
+  def generateAmazonApiGatewayIntegration(path: Path, method: Method) = {
+    (for {
+      p <- Option(swagger.getPath(path))
+      o <- p.getOperationMap.toMap[HttpMethod, Operation].get(method)
+      vm = o.getVendorExtensions
+        .get("x-amazon-apigateway-integration")
+        .asInstanceOf[java.util.LinkedHashMap[String, Object]].toMap
+      ag <- AmazonApiGatewayIntegration.create(vm)
+    } yield ag) match {
+      case Some(s) => s
+      case None => throw new RuntimeException("swagger.yaml is illegal.")
+    }
+  }
+```
+            </script>
+          </section>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+### 3. API Gateway よろしく<br>Velocity テンプレートのパース
+
+```scala
+  // Apache Velocity
+  val slf4j = "org.slf4j" % "slf4j-simple" % "1.7.14"
+  val velocity = "org.apache.velocity" % "velocity" % "1.7"
+```
+
+---
+
+```scala
+import java.io.StringWriter
+
+import org.apache.velocity.{Template, VelocityContext}
+import org.apache.velocity.app.VelocityEngine
+import org.apache.velocity.runtime.RuntimeConstants
+import org.apache.velocity.runtime.resource.loader.StringResourceLoader
+
+case class ScalaVelocityContext(context: VelocityContext) {
+  def put(key: String, value: Any): ScalaVelocityContext = {
+    context.put(key, value)
+    this
+  }
+}
+
+case class ScalaVelocityTemplate(template: Template) {
+
+  def merge(f: ScalaVelocityContext => ScalaVelocityContext): String = {
+    val w = new StringWriter()
+    val c = new VelocityContext()
+    template.merge(f(ScalaVelocityContext(c)).context, w)
+    w.toString
+  }
+
+}
+
+class ScalaVelocity(val templateName: String) extends VelocityEngine {
+
+  def addTemplate(template: String): ScalaVelocityTemplate = {
+    val repo = StringResourceLoader.getRepository
+    val sr = repo.getStringResource(templateName)
+    if (sr == null) repo.putStringResource(templateName, template)
+    ScalaVelocityTemplate(this.getTemplate(templateName))
+  }
+
+}
+
+object ScalaVelocity {
+
+  def create(templateName: String): ScalaVelocity = {
+    val e = new ScalaVelocity(templateName)
+    e.addProperty(RuntimeConstants.RESOURCE_LOADER, "string")
+    e.addProperty("string.resource.loader.class", classOf[StringResourceLoader].getName)
+    e.init()
+    e
+  }
+
+}
+```
+
+---
+
+```scala
+  case class VendorResponseParseResult(statusCode: StatusCode,
+                                       message: String)
+
+  object VendorResponseParseResult {
+    def apply(vendorResponse: VendorResponse, aMessage: String): VendorResponseParseResult = {
+      val message = vendorResponse.responseTemplates match {
+        case Some(t) => ScalaVelocity.create("responseTemplates")
+          .addTemplate(t.applicationJson).merge(c => {
+            c.put("input", InputModel(Map("$.errorMessage" -> aMessage)))
+              .put("util", Util)
+        })
+        case None => ""
+      }
+      VendorResponseParseResult(vendorResponse.statusCode, message)
+    }
+  }
+```
+
+            </script>
+          </section>
+        </section>
+
+        <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+          <script type="text/template">
+# これらの部品は、近日公開予定
+
+          </script>
+        </section>
+
+        <section>
+          <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+            <script type="text/template">
+# Akka HTTP<br>のコード
+
+---
+
+### HelloService.scala
+
+```scala
+import akka.actor.ActorRef
+import akka.http.scaladsl.server.Directives
+import akka.http.scaladsl.model.StatusCode
+import akka.util.Timeout
+import HelloActor._
+import me.huzi.apigateway.DefaultJsonFormats
+import me.huzi.apigateway.core.rest.{ApiGatewayResponse, ErrorResponse, OriginalResponse}
+
+class HelloService(hello: ActorRef)
+  extends Directives with DefaultJsonFormats {
+
+  import akka.pattern.ask
+  import scala.concurrent.duration._
+
+  implicit val timeout = Timeout(3.seconds)
+
+  val route =
+    getHello
+
+  def getHello =
+    path("hello" / Segment) { message =>
+      get {
+        val response = (hello ? convert2Input(HelloRequest(message))).mapTo[ApiGatewayResponse]
+        onSuccess(response) {
+          case OriginalResponse(c, s) => complete((StatusCode.int2StatusCode(c), s))
+          case ErrorResponse(c, e) => complete((StatusCode.int2StatusCode(c), e))
+        }
+      }
+    }
+}
+```
+
+---
+
+### HelloActor.scala
+
+```scala
+import akka.actor.{Actor, ActorLogging}
+import io.swagger.models.HttpMethod
+import me.huzi.apigateway.core.swagger.SwaggerYAML
+import me.huzi.apigateway.core.velocity.model.InputModel
+import me.huzi.lambda.hello.App
+
+trait HelloSwaggerYAML extends SwaggerYAML {
+  val path: Path = "/hello/{message}"
+  val method: Method = HttpMethod.GET
+}
+
+object HelloActor extends HelloSwaggerYAML {
+  case class HelloRequest(message: String)
+
+  def convert2Input(request: HelloRequest): InputModel = {
+    InputModel(Map[String, String](
+      "message" -> request.message
+    ))
+  }
+}
+
+class HelloActor extends Actor with ActorLogging {
+  import HelloActor._
+
+  override def receive: Receive = {
+    case m: InputModel => {
+      val input = convert2InputStream(m)
+      val output = execute(input)(new App().handleRequest)
+      sender ! output
+    }
+  }
+}
+```
+            </script>
+          </section>
+        </section>
+
+        <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+          <script type="text/template">
+# これからの予定
+
+---
+
+# これからの予定
+
+* Swagger YAMLから、コード自動生成
+
+* sbt-aws-apigateway 的なプラグイン化
+
+* [serverless](https://github.com/serverless/serverless) のScala版
+
+---
+
+![serverless](img/serverless.png)
+
+          </script>
+        </section>
+
+      </div>
+    </div>
+
+    <script src="/lib/js/head.min.js"></script>
+    <script src="/js/reveal.js"></script>
+
+    <script>
+      // More info https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+        history: true,
+
+        // More info https://github.com/hakimel/reveal.js#dependencies
+        dependencies: [
+          { src: '/plugin/markdown/marked.js' },
+          { src: '/plugin/markdown/markdown.js' },
+          { src: '/plugin/notes/notes.js', async: true },
+          { src: '/plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+        ],
+        slideNumber: 'c/t'
+      });
+    </script>
+  </body>
+</html>
